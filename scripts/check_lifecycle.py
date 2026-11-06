@@ -23,8 +23,12 @@ def shell(*args):
 adb("install", "-r", str(PROJECT / "app/build/outputs/apk/debug/app-debug.apk"))
 shell("am", "force-stop", PACKAGE)
 original = {key: shell("settings", "get", "system", key) for key in ["accelerometer_rotation", "user_rotation"]}
+# Android can restore a task's remembered rotation when it becomes foreground.
+# Set portrait while this app is active, then start a fresh process for measurement.
+shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
 shell("wm", "user-rotation", "lock", "0")
 shell("am", "wait-for-broadcast-idle")
+shell("am", "force-stop", PACKAGE)
 logcat = subprocess.Popen([ADB, "logcat", "-v", "threadtime", "-T", "1", "ActivityLifecycle:D", "*:S"], stdout=subprocess.PIPE, text=True)
 events = queue.Queue()
 threading.Thread(target=lambda: [events.put(line) for line in logcat.stdout], daemon=True).start()
@@ -63,6 +67,9 @@ try:
     screenshot("portrait")
     shell("input", "keyevent", "KEYCODE_HOME")
     expect("home", ["onPause", "onStop"])
+    # Wait for the launcher transition to finish before bringing the task back.
+    # Interrupting the system's Home animation can itself trigger a configuration relaunch.
+    screenshot("home")
     shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
     expect("return", ["onRestart", "onStart", "onResume"])
     shell("wm", "user-rotation", "lock", "1")
